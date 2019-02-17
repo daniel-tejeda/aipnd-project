@@ -99,3 +99,9 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+
+#data dir
+flowers/
+flowers2/
+
