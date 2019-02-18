@@ -6,13 +6,14 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import torchvision
+import sys
 
 from torch import nn
 from torch import optim
 from torchvision import datasets, transforms, models
 from collections import OrderedDict
-from PIL import Image
-form utils import printProgressBar
+
+from utils import *
 
 import json
 
@@ -21,7 +22,17 @@ class Classifier():
     def __init__(self, in_arg):
 
         self.base_models = ['vgg16','vgg13', 'alexnet']
-
+        
+        self.in_arg = in_arg
+        self.device = ("cuda:0" if torch.cuda.is_available() and self.in_arg.gpu else "cpu")
+        
+        if 'checkpoint' in vars(self.in_arg):
+            self.model = self.load_checkpoint(self.in_arg.checkpoint)
+            return
+            
+        self.save_dir = self.in_arg.save_dir
+        self.save_dir += ('' if self.save_dir[-1]=='/' else '/')
+        
         self.data_transforms = {
             'train': transforms.Compose([transforms.RandomRotation(30),
                         transforms.RandomResizedCrop(224),
@@ -43,7 +54,7 @@ class Classifier():
                                              [0.229, 0.224, 0.225])])
         }
 
-        self.image_datasets = { x: datasets.ImageFolder('{}{}'.format(in_arg.data_dir,x),
+        self.image_datasets = { x: datasets.ImageFolder('{}{}'.format(self.in_arg.data_dir,x),
                                                    transform=self.data_transforms[x])
                           for x in ['train','test','valid'] }
 
@@ -53,14 +64,7 @@ class Classifier():
 
         self.dataset_sizes = {x: len(self.image_datasets[x]) for x in ['train','test','valid'] }
 
-        self.in_arg = in_arg
-
-        self.device = ("cuda:0" if torch.cuda.is_available() and self.in_arg.gpu else "cpu")
-
-        self.save_dir = self.in_arg.save_dir
-
-        self.save_dir += ('' if self.save_dir[-1]=='/' else '/')
-
+       
         self.model = self.create_model(arch=in_arg.arch,
                                   data_dir=in_arg.data_dir,
                                   hidden_units=in_arg.hidden_units,
@@ -122,8 +126,8 @@ class Classifier():
         optimizer = self.model.optimizer
         self.model.to(self.device)
 
-        print('{} trainig | Device: [{}]'.format(
-            '\nBeginning' if self.model.train_epochs==0 else 'Resuming',
+        print('{} training on device: [{}]'.format(
+            '\nStarting' if self.model.train_epochs==0 else 'Resuming',
             self.device))
 
 
@@ -147,16 +151,17 @@ class Classifier():
 
                 print("\n[{}-{}] Start | {} images".format(
                       epoch+1, phase, self.dataset_sizes[phase]))
-
-
+            
+                prog = 0
+                
                 for step, (images, labels) in enumerate(self.dataloaders[phase]):
 
                     images, labels = images.to(self.device), labels.to(self.device)
-
-                    printProgressBar(step*images.size(0),
-                                     self.dataset_sizes[phase],
-                                     prefix = 'Progress:',
-                                     suffix = 'Complete')
+                    
+                    prog += images.size(0)
+                    print_progress(prog, self.dataset_sizes[phase],
+                                   prefix = '[{}-{}]'.format(epoch+1, phase),
+                                   suffix = '[{}/{} images]'.format(prog, self.dataset_sizes[phase]))
 
                     #zero grad
                     optimizer.zero_grad()
@@ -179,11 +184,10 @@ class Classifier():
                     running_loss += loss.item() #check
                     running_corrects += corrects_sum
 
-                    #progbar.value += images.size(0)
-
+                    
                 if phase == 'train':
                     self.model.train_epochs += 1
-                    save_checkpoint(self.model)
+                    self.save_checkpoint()
 
                 epoch_loss = running_loss / self.dataset_sizes[phase]
                 epoch_acc = running_corrects.double() / self.dataset_sizes[phase]
@@ -243,99 +247,94 @@ class Classifier():
 
 
 
+    def save_checkpoint(self):
 
+        path = '{}{}-flowers-classifier.pth'.format(
+            self.save_dir,
+            self.model.arch )
 
-def save_checkpoint(_model):
+        # Basic details
+        checkpoint = {
+            'arch': self.model.arch,
+            'classifier': self.model.classifier,
+            'state_dict': self.model.state_dict(),
+            'optimizer' : self.model.optimizer,
+            'optimizer_state_dict': self.model.optimizer.state_dict(),
+            'class_to_idx': self.model.class_to_idx,
+            'idx_to_class': self.model.idx_to_class,
+            'train_epochs': self.model.train_epochs
+        }
 
-    path = '{}{}-flowers-classifier.pth'.format(
-        self.save_dir,
-        _model.arch )
-
-    # Basic details
-    checkpoint = {
-        'arch': _model.arch,
-        'classifier': _model.classifier,
-        'state_dict': _model.state_dict(),
-        'optimizer' : _model.optimizer,
-        'optimizer_state_dict': _model.optimizer.state_dict(),
-        'class_to_idx': _model.class_to_idx,
-        'idx_to_class': _model.idx_to_class,
-        'train_epochs': _model.train_epochs
-    }
-
-    # Save the data to the path
-    torch.save(checkpoint, path)
-
+        # Save the data to the path
+        torch.save(checkpoint, path)
 
 
 
+    def load_checkpoint(self, path):
 
-def load_checkpoint(path):
+        # Load in checkpoint
+        checkpoint = torch.load(path)
 
-    # Load in checkpoint
-    checkpoint = torch.load(path)
+        arch = checkpoint['arch']
 
-    arch = checkpoint['arch']
+        error_msg = "Only {} supported at this time".format(
+                    ", ".join(self.base_models))
 
-    error_msg = "Only {} supported at this time".format(
-                ", ".join(base_models))
+        assert (arch in self.base_models), error_msg
 
-    assert (arch in base_models), error_msg
+        _model = eval('models.{}(pretrained=True)'.format(arch))
+        _model.arch = arch
 
-    _model = eval('models.{}(pretrained=True)'.format(arch))
-    _model.arch = arch
+        #freeze params, avoid backprop
+        for param in _model.parameters():
+            param.requires_grad = False
 
-    #freeze params, avoid backprop
-    for param in _model.parameters():
-        param.requires_grad = False
+        _model.classifier = checkpoint['classifier']
 
-    _model.classifier = checkpoint['classifier']
+        # Load state dict
+        _model.load_state_dict(checkpoint['state_dict'])
 
-    # Load state dict
-    _model.load_state_dict(checkpoint['state_dict'])
+        # Model basics
+        _model.class_to_idx = checkpoint['class_to_idx']
+        _model.idx_to_class = checkpoint['idx_to_class']
 
-    # Model basics
-    _model.class_to_idx = checkpoint['class_to_idx']
-    _model.idx_to_class = checkpoint['idx_to_class']
+        # Optimizer
+        _model.optimizer = checkpoint['optimizer']
+        _model.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-    # Optimizer
-    _model.optimizer = checkpoint['optimizer']
-    _model.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        #epochs
+        _model.train_epochs = checkpoint['train_epochs']
 
-    #epochs
-    _model.train_epochs = checkpoint['train_epochs']
-
-    return _model
-
+        return _model
 
 
+    def predict(self, image_path):
 
+        img_tensor = process_image(image_path)
 
-def predict_tensor(img_tensor, model, topk=5, device='cpu'):
+        pred, classes = self.predict_tensor(img_tensor,
+                                           self.model,
+                                           self.in_arg.top_k,
+                                           self.device)
 
-    img_tensor.requires_grad_(False)
+        return pred, classes
 
-    #batch dimmension
-    img_tensor.unsqueeze_(0)
+    
 
-    img_tensor = img_tensor.to(device)
+    def predict_tensor(self, img_tensor, model, topk, device):
 
-    with torch.set_grad_enabled(False):
-        model.to(device)
-        model.eval()
-        output = model.forward(img_tensor)
-        ps = torch.exp(output)
+        img_tensor.requires_grad_(False)
 
-    return ps.topk(topk, dim=1)
+        #batch dimmension
+        img_tensor.unsqueeze_(0)
 
+        img_tensor = img_tensor.to(device)
 
-def predict(image_path):
+        with torch.set_grad_enabled(False):
+            model.to(device)
+            model.eval()
+            output = model.forward(img_tensor)
+            ps = torch.exp(output)
 
-    img_tensor = process_image(image_path)
+        return ps.topk(topk, dim=1)
 
-    pred, classes = predict_tensor(img_tensor,
-                                   self.model,
-                                   self.in_arg.topk,
-                                   self.device)
-
-    return pred, classes
