@@ -12,9 +12,9 @@ from torch import nn
 from torch import optim
 from torchvision import datasets, transforms, models
 from collections import OrderedDict
+from workspace_utils import keep_awake
 
 from utils import *
-
 import json
 
 class Classifier():
@@ -22,14 +22,24 @@ class Classifier():
     def __init__(self, in_arg):
 
         self.base_models = ['vgg16','vgg13', 'alexnet']
-        
         self.in_arg = in_arg
+        
         self.device = ("cuda:0" if torch.cuda.is_available() and self.in_arg.gpu else "cpu")
         
+        if 'category_names' in vars(self.in_arg):   
+            with open(self.in_arg.category_names, 'r') as f:
+                self.cat_to_name = json.load(f)
+
         if 'checkpoint' in vars(self.in_arg):
             self.model = self.load_checkpoint(self.in_arg.checkpoint)
             return
-            
+        
+        error_msg = "Only {} supported at this time".format(
+                    ", ".join(self.base_models))
+
+        assert (self.in_arg.arch in self.base_models), error_msg
+        
+        
         self.save_dir = self.in_arg.save_dir
         self.save_dir += ('' if self.save_dir[-1]=='/' else '/')
         
@@ -64,7 +74,16 @@ class Classifier():
 
         self.dataset_sizes = {x: len(self.image_datasets[x]) for x in ['train','test','valid'] }
 
-       
+        if self.in_arg.resume:
+            chkpointpath = '{}{}-flowers-classifier.pth'.format(
+                                                        self.save_dir,
+                                                        in_arg.arch )
+            
+            self.model = self.load_checkpoint(chkpointpath)
+            
+            return 
+        
+        
         self.model = self.create_model(arch=in_arg.arch,
                                   data_dir=in_arg.data_dir,
                                   hidden_units=in_arg.hidden_units,
@@ -74,14 +93,6 @@ class Classifier():
 
     def create_model(self, arch, data_dir, hidden_units=1024, dropout=0.4, learnrate=0.02):
 
-        #image_datasets, dataloaders, dataset_sizes = init_datasets(data_dir)
-
-        error_msg = "Only {} supported at this time".format(
-                    ", ".join(self.base_models))
-
-        assert (arch in self.base_models), error_msg
-
-        #_model = base_models[arch]
         _model = eval('models.{}(pretrained=True)'.format(arch))
 
         #freeze params, avoid backprop
@@ -133,7 +144,7 @@ class Classifier():
 
         global_epochs =  self.model.train_epochs+epochs
 
-        for epoch in range(self.model.train_epochs, global_epochs):
+        for epoch in keep_awake(range(self.model.train_epochs, global_epochs)):
 
             print('-' * 40)
             print('Epoch {}/{}'.format(epoch+1, global_epochs))
@@ -201,10 +212,10 @@ class Classifier():
     def print_args(self):
 
         for arg in vars(self.in_arg):
-            print("{}: {}".format(arg, getattr(self.in_arg, arg)))
+            print("{:>16}: {}".format(arg, getattr(self.in_arg, arg)))
 
 
-    def validate_model(self):
+    def validate(self):
 
         criterion=nn.NLLLoss()
 
@@ -217,12 +228,18 @@ class Classifier():
         phase = 'test'
 
         print("\n[{}] Start | {} images".format(
-                      phase, dataset_sizes[phase]))
+                      phase, self.dataset_sizes[phase]))
 
-
-        for images, labels in dataloaders[phase]:
+        prog = 0
+        
+        for images, labels in self.dataloaders[phase]:
 
             images, labels = images.to(self.device), labels.to(self.device)
+            
+            prog += images.size(0)
+            print_progress(prog, self.dataset_sizes[phase],
+                           prefix = '[{}]'.format(phase),
+                           suffix = '[{}/{} images]'.format(prog, self.dataset_sizes[phase]))
 
             with torch.set_grad_enabled(False):
 
@@ -233,11 +250,10 @@ class Classifier():
             running_loss += loss.item()
             running_corrects += torch.sum(preds == labels.data)
 
-            #progbar.value += images.size(0)
 
-        test_loss = running_loss / dataset_sizes[phase]
+        test_loss = running_loss / self.dataset_sizes[phase]
         # Accuracy is number of correct predictions divided by all predictions
-        accuracy = running_corrects.double() / dataset_sizes[phase]
+        accuracy = running_corrects.double() / self.dataset_sizes[phase]
 
 
         print("[{}] End | Loss: {:.4f} ... Acc: {:.4f}\n".format(
@@ -268,19 +284,14 @@ class Classifier():
         # Save the data to the path
         torch.save(checkpoint, path)
 
-
-
+    
+        
     def load_checkpoint(self, path):
 
         # Load in checkpoint
         checkpoint = torch.load(path)
 
         arch = checkpoint['arch']
-
-        error_msg = "Only {} supported at this time".format(
-                    ", ".join(self.base_models))
-
-        assert (arch in self.base_models), error_msg
 
         _model = eval('models.{}(pretrained=True)'.format(arch))
         _model.arch = arch
@@ -316,7 +327,9 @@ class Classifier():
                                            self.model,
                                            self.in_arg.top_k,
                                            self.device)
-
+        
+        
+        
         return pred, classes
 
     
