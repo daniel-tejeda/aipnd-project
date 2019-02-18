@@ -1,16 +1,17 @@
 #PROGRAMMER: Daniel Tejeda
-
-import torch
 from classifier import Classifier
 from utils import *
 
- 
+
 def main():
 
     in_arg = get_train_input_args()
-    print(in_arg)
 
     classifier = Classifier(in_arg)
+
+    print('\nClassifier created for training with parameters:\n')
+    classifier.print_args()
+
     classifier.train()
 
 

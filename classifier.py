@@ -12,7 +12,8 @@ from torch import optim
 from torchvision import datasets, transforms, models
 from collections import OrderedDict
 from PIL import Image
-#from workspace_utils import active_session, keep_awake
+form utils import printProgressBar
+
 import json
 
 class Classifier():
@@ -26,17 +27,20 @@ class Classifier():
                         transforms.RandomResizedCrop(224),
                         transforms.RandomHorizontalFlip(),
                         transforms.ToTensor(),
-                        transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])]),
+                        transforms.Normalize([0.485, 0.456, 0.406],
+                                             [0.229, 0.224, 0.225])]),
 
             'test': transforms.Compose([transforms.Resize(256),
                         transforms.CenterCrop(224),
                         transforms.ToTensor(),
-                        transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])]),
+                        transforms.Normalize([0.485, 0.456, 0.406],
+                                             [0.229, 0.224, 0.225])]),
 
             'valid': transforms.Compose([transforms.Resize(256),
                         transforms.CenterCrop(224),
                         transforms.ToTensor(),
-                        transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])])
+                        transforms.Normalize([0.485, 0.456, 0.406],
+                                             [0.229, 0.224, 0.225])])
         }
 
         self.image_datasets = { x: datasets.ImageFolder('{}{}'.format(in_arg.data_dir,x),
@@ -50,8 +54,12 @@ class Classifier():
         self.dataset_sizes = {x: len(self.image_datasets[x]) for x in ['train','test','valid'] }
 
         self.in_arg = in_arg
-        
+
         self.device = ("cuda:0" if torch.cuda.is_available() and self.in_arg.gpu else "cpu")
+
+        self.save_dir = self.in_arg.save_dir
+
+        self.save_dir += ('' if self.save_dir[-1]=='/' else '/')
 
         self.model = self.create_model(arch=in_arg.arch,
                                   data_dir=in_arg.data_dir,
@@ -103,25 +111,30 @@ class Classifier():
         _model.optimizer = optim.Adam( _model.classifier.parameters(), lr=learnrate)
         _model.train_epochs = 0
 
+
         return _model
 
-    
+
     def train(self):
-        
+
         epochs = self.in_arg.epochs
         criterion=nn.NLLLoss()
         optimizer = self.model.optimizer
         self.model.to(self.device)
-        
-        print('{} trainig | Device: [{}]'.format('Beginning' if self.model.train_epochs==0 else 'Resuming', self.device))
-        
+
+        print('{} trainig | Device: [{}]'.format(
+            '\nBeginning' if self.model.train_epochs==0 else 'Resuming',
+            self.device))
+
+
         global_epochs =  self.model.train_epochs+epochs
-        
+
         for epoch in range(self.model.train_epochs, global_epochs):
 
             print('-' * 40)
             print('Epoch {}/{}'.format(epoch+1, global_epochs))
             print('-' * 40)
+
 
             for phase in ['train', 'valid']:
                 if phase == 'train':
@@ -135,10 +148,15 @@ class Classifier():
                 print("\n[{}-{}] Start | {} images".format(
                       epoch+1, phase, self.dataset_sizes[phase]))
 
-                
+
                 for step, (images, labels) in enumerate(self.dataloaders[phase]):
 
                     images, labels = images.to(self.device), labels.to(self.device)
+
+                    printProgressBar(step*images.size(0),
+                                     self.dataset_sizes[phase],
+                                     prefix = 'Progress:',
+                                     suffix = 'Complete')
 
                     #zero grad
                     optimizer.zero_grad()
@@ -176,6 +194,10 @@ class Classifier():
 
 
 
+    def print_args(self):
+
+        for arg in vars(self.in_arg):
+            print("{}: {}".format(arg, getattr(self.in_arg, arg)))
 
 
     def validate_model(self):
@@ -210,7 +232,7 @@ class Classifier():
             #progbar.value += images.size(0)
 
         test_loss = running_loss / dataset_sizes[phase]
-        # Accuracy is number of correct predictions divided by all predictions, just take the mean
+        # Accuracy is number of correct predictions divided by all predictions
         accuracy = running_corrects.double() / dataset_sizes[phase]
 
 
@@ -223,10 +245,11 @@ class Classifier():
 
 
 
-def save_checkpoint(_model, path=''):
+def save_checkpoint(_model):
 
-    if path ==  '':
-        path = _model.arch + '-flowers-classifier.pth' #default
+    path = '{}{}-flowers-classifier.pth'.format(
+        self.save_dir,
+        _model.arch )
 
     # Basic details
     checkpoint = {
@@ -243,9 +266,9 @@ def save_checkpoint(_model, path=''):
     # Save the data to the path
     torch.save(checkpoint, path)
 
-    
-    
-    
+
+
+
 
 def load_checkpoint(path):
 
@@ -310,6 +333,9 @@ def predict(image_path):
 
     img_tensor = process_image(image_path)
 
-    pred, classes = predict_tensor(img_tensor, self.model, self.in_arg.topk, self.device)
+    pred, classes = predict_tensor(img_tensor,
+                                   self.model,
+                                   self.in_arg.topk,
+                                   self.device)
 
     return pred, classes
