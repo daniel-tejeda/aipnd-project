@@ -15,17 +15,19 @@ def get_train_input_args():
     parser.add_argument('--arch', type = str, default = 'vgg16',
                     help = 'CNN base model - options: vgg13, vgg16, alexnet')
 
-    parser.add_argument('--learning_rate', type = float, default = 0.02,
+    parser.add_argument('--learning_rate', type = float, default = 0.002,
                     help = 'Learning rate')
 
-    parser.add_argument('--hidden_units', type = int, default = 512,
+    parser.add_argument('--hidden_units', type = int, default = 1024,
                     help = 'Number of units in the hidden layer of classifier')
 
     parser.add_argument('--epochs', type = int, default = 5,
                     help = 'Number of epochs for training')
 
-    parser.add_argument('--gpu', default = False, help = 'Use GPU')
-
+    parser.add_argument('--gpu', dest = 'gpu', action = 'store_true',
+                    help = 'Use GPU')
+    
+    parser.set_defaults(gpu=False)
 
     return parser.parse_args()
 
@@ -85,3 +87,27 @@ def imshow(image, ax=None, title=None):
     ax.imshow(image)
 
     return ax
+
+
+# Print iterations progress
+def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_length=100):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        bar_length  - Optional  : character length of bar (Int)
+    """
+    str_format = "{0:." + str(decimals) + "f}"
+    percents = str_format.format(100 * (iteration / float(total)))
+    filled_length = int(round(bar_length * iteration / float(total)))
+    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+
+    sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix)),
+
+    if iteration == total:
+        sys.stdout.write('\n')
+    sys.stdout.flush()

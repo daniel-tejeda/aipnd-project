@@ -22,7 +22,6 @@ class Classifier():
         self.base_models = ['vgg16','vgg13', 'alexnet']
 
         self.data_transforms = {
-
             'train': transforms.Compose([transforms.RandomRotation(30),
                         transforms.RandomResizedCrop(224),
                         transforms.RandomHorizontalFlip(),
@@ -51,6 +50,8 @@ class Classifier():
         self.dataset_sizes = {x: len(self.image_datasets[x]) for x in ['train','test','valid'] }
 
         self.in_arg = in_arg
+        
+        self.device = ("cuda:0" if torch.cuda.is_available() and self.in_arg.gpu else "cpu")
 
         self.model = self.create_model(arch=in_arg.arch,
                                   data_dir=in_arg.data_dir,
@@ -59,7 +60,7 @@ class Classifier():
 
 
 
-    def create_model(self, arch, data_dir, hidden_units=512, dropout=0.4, learnrate=0.02):
+    def create_model(self, arch, data_dir, hidden_units=1024, dropout=0.4, learnrate=0.02):
 
         #image_datasets, dataloaders, dataset_sizes = init_datasets(data_dir)
 
@@ -104,21 +105,19 @@ class Classifier():
 
         return _model
 
-
+    
     def train(self):
-        device = ("cuda:0" if torch.cuda.is_available() and in_arg.gpu else "cpu")
-        self.train_model(self.model, self.in_arg.epochs, device)
-
-    def train_model(self, model, epochs=5, device='cpu'):
-
-
+        
+        epochs = self.in_arg.epochs
         criterion=nn.NLLLoss()
-        optimizer = model.optimizer
-        model.to(device)
-
-        global_epochs =  model.train_epochs+epochs
-
-        for epoch in range(model.train_epochs, global_epochs):
+        optimizer = self.model.optimizer
+        self.model.to(self.device)
+        
+        print('{} trainig | Device: [{}]'.format('Beginning' if self.model.train_epochs==0 else 'Resuming', self.device))
+        
+        global_epochs =  self.model.train_epochs+epochs
+        
+        for epoch in range(self.model.train_epochs, global_epochs):
 
             print('-' * 40)
             print('Epoch {}/{}'.format(epoch+1, global_epochs))
@@ -126,9 +125,9 @@ class Classifier():
 
             for phase in ['train', 'valid']:
                 if phase == 'train':
-                    model.train()
+                    self.model.train()
                 else:
-                    model.eval()
+                    self.model.eval()
 
                 running_loss = 0.0
                 running_corrects = 0
@@ -136,11 +135,10 @@ class Classifier():
                 print("\n[{}-{}] Start | {} images".format(
                       epoch+1, phase, self.dataset_sizes[phase]))
 
-
-
+                
                 for step, (images, labels) in enumerate(self.dataloaders[phase]):
 
-                    images, labels = images.to(device), labels.to(device)
+                    images, labels = images.to(self.device), labels.to(self.device)
 
                     #zero grad
                     optimizer.zero_grad()
@@ -148,7 +146,7 @@ class Classifier():
                     #forward
                     with torch.set_grad_enabled(phase == 'train'):
 
-                        output = model.forward(images)
+                        output = self.model.forward(images)
                         loss = criterion(output, labels)
 
                     if phase == 'train':
@@ -163,11 +161,11 @@ class Classifier():
                     running_loss += loss.item() #check
                     running_corrects += corrects_sum
 
-                    progbar.value += images.size(0)
+                    #progbar.value += images.size(0)
 
                 if phase == 'train':
-                    model.train_epochs += 1
-                    save_checkpoint(model)
+                    self.model.train_epochs += 1
+                    save_checkpoint(self.model)
 
                 epoch_loss = running_loss / self.dataset_sizes[phase]
                 epoch_acc = running_corrects.double() / self.dataset_sizes[phase]
@@ -180,12 +178,12 @@ class Classifier():
 
 
 
-    def validate_model(self, model, device='cpu'):
+    def validate_model(self):
 
         criterion=nn.NLLLoss()
 
-        model.to(device)
-        model.eval()
+        self.model.to(self.device)
+        self.model.eval()
 
         running_corrects = 0
         running_loss = 0
@@ -198,18 +196,18 @@ class Classifier():
 
         for images, labels in dataloaders[phase]:
 
-            images, labels = images.to(device), labels.to(device)
+            images, labels = images.to(self.device), labels.to(self.device)
 
             with torch.set_grad_enabled(False):
 
-                output = model.forward(images)
+                output = self.model.forward(images)
                 loss = criterion(output, labels)
 
             _, preds = torch.max(output, dim=1)
             running_loss += loss.item()
             running_corrects += torch.sum(preds == labels.data)
 
-            progbar.value += images.size(0)
+            #progbar.value += images.size(0)
 
         test_loss = running_loss / dataset_sizes[phase]
         # Accuracy is number of correct predictions divided by all predictions, just take the mean
@@ -245,9 +243,9 @@ def save_checkpoint(_model, path=''):
     # Save the data to the path
     torch.save(checkpoint, path)
 
-
-
-
+    
+    
+    
 
 def load_checkpoint(path):
 
@@ -290,7 +288,6 @@ def load_checkpoint(path):
 
 
 
-
 def predict_tensor(img_tensor, model, topk=5, device='cpu'):
 
     img_tensor.requires_grad_(False)
@@ -309,10 +306,10 @@ def predict_tensor(img_tensor, model, topk=5, device='cpu'):
     return ps.topk(topk, dim=1)
 
 
-def predict(image_path, model, topk=5, device='cpu'):
+def predict(image_path):
 
     img_tensor = process_image(image_path)
 
-    pred, classes = predict_tensor(img_tensor, model, topk, device='cpu')
+    pred, classes = predict_tensor(img_tensor, self.model, self.in_arg.topk, self.device)
 
     return pred, classes
