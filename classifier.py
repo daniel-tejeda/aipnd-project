@@ -23,26 +23,26 @@ class Classifier():
 
         self.base_models = ['vgg16','vgg13', 'alexnet']
         self.in_arg = in_arg
-        
+
         self.device = ("cuda:0" if torch.cuda.is_available() and self.in_arg.gpu else "cpu")
-        
-        if 'category_names' in vars(self.in_arg):   
+
+        if 'category_names' in vars(self.in_arg):
             with open(self.in_arg.category_names, 'r') as f:
                 self.cat_to_name = json.load(f)
 
         if 'checkpoint' in vars(self.in_arg):
             self.model = self.load_checkpoint(self.in_arg.checkpoint)
             return
-        
+
         error_msg = "Only {} supported at this time".format(
                     ", ".join(self.base_models))
 
         assert (self.in_arg.arch in self.base_models), error_msg
-        
-        
+
+
         self.save_dir = self.in_arg.save_dir
         self.save_dir += ('' if self.save_dir[-1]=='/' else '/')
-        
+
         self.data_transforms = {
             'train': transforms.Compose([transforms.RandomRotation(30),
                         transforms.RandomResizedCrop(224),
@@ -78,12 +78,12 @@ class Classifier():
             chkpointpath = '{}{}-flowers-classifier.pth'.format(
                                                         self.save_dir,
                                                         in_arg.arch )
-            
+
             self.model = self.load_checkpoint(chkpointpath)
-            
-            return 
-        
-        
+
+            return
+
+
         self.model = self.create_model(arch=in_arg.arch,
                                   data_dir=in_arg.data_dir,
                                   hidden_units=in_arg.hidden_units,
@@ -144,7 +144,7 @@ class Classifier():
 
         global_epochs =  self.model.train_epochs+epochs
 
-        for epoch in keep_awake(range(self.model.train_epochs, global_epochs)):
+        for epoch in range(self.model.train_epochs, global_epochs):
 
             print('-' * 40)
             print('Epoch {}/{}'.format(epoch+1, global_epochs))
@@ -162,13 +162,13 @@ class Classifier():
 
                 print("\n[{}-{}] Start | {} images".format(
                       epoch+1, phase, self.dataset_sizes[phase]))
-            
+
                 prog = 0
-                
+
                 for step, (images, labels) in enumerate(self.dataloaders[phase]):
 
                     images, labels = images.to(self.device), labels.to(self.device)
-                    
+
                     prog += images.size(0)
                     print_progress(prog, self.dataset_sizes[phase],
                                    prefix = '[{}-{}]'.format(epoch+1, phase),
@@ -195,7 +195,7 @@ class Classifier():
                     running_loss += loss.item() #check
                     running_corrects += corrects_sum
 
-                    
+
                 if phase == 'train':
                     self.model.train_epochs += 1
                     self.save_checkpoint()
@@ -231,11 +231,11 @@ class Classifier():
                       phase, self.dataset_sizes[phase]))
 
         prog = 0
-        
+
         for images, labels in self.dataloaders[phase]:
 
             images, labels = images.to(self.device), labels.to(self.device)
-            
+
             prog += images.size(0)
             print_progress(prog, self.dataset_sizes[phase],
                            prefix = '[{}]'.format(phase),
@@ -284,8 +284,8 @@ class Classifier():
         # Save the data to the path
         torch.save(checkpoint, path)
 
-    
-        
+
+
     def load_checkpoint(self, path):
 
         # Load in checkpoint
@@ -327,12 +327,12 @@ class Classifier():
                                            self.model,
                                            self.in_arg.top_k,
                                            self.device)
-        
-        
-        
+
+
+
         return pred, classes
 
-    
+
 
     def predict_tensor(self, img_tensor, model, topk, device):
 
@@ -350,4 +350,3 @@ class Classifier():
             ps = torch.exp(output)
 
         return ps.topk(topk, dim=1)
-
