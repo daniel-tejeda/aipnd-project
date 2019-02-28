@@ -137,8 +137,8 @@ class Classifier():
         optimizer = self.model.optimizer
         self.model.to(self.device)
 
-        print('{} training on device: [{}]'.format(
-            '\nStarting' if self.model.train_epochs==0 else 'Resuming',
+        print('\n{} training on device: [{}]'.format(
+            'Starting' if self.model.train_epochs==0 else 'Resuming',
             self.device))
 
 
